@@ -42,9 +42,12 @@ def upblock(input,convlayers=8):
 
 def build_model(convlayernums=[32,32,32,32],metadatashape=None):
     """
-    this implements the model for use with a single constant otf for each image
-    for full flexibility one could accept spatailly varying otf data by setting the "otfdata" shape to (256, 256, 4)
-    if no otf data is availiable simply remove the "otfdata" input and the few lines dealing with "resizedotf" and "resizedotf2" below
+    This builds the PeakCNN model with some flexibility in the architecture.
+    The number of filters in the Convolutions in the downsampling levels of the U-net may be adjusted via the convlayernums argument.
+    Depending on the argument metadatashape the created model will utilize metadata beyond the images themselves or not.
+    This is activated by setting metadatashape to the shape of the intended per image meatadata in HWC order.
+    Within the model this is then resized to match the coresponding activation map at the top and bottom of the Unet.
+    For example in the paper we utilized OTF information in the form of a set of 4 numbers constant over each image which would corespond to a metadatashape=(1,1,4)
     """
 
     usemetadata = metadatashape is not None
@@ -59,11 +62,11 @@ def build_model(convlayernums=[32,32,32,32],metadatashape=None):
         resizedotf = Resizing(256,256)(otfdatainput)
         x = Concatenate()((x,resizedotf))
 
-    x = Conv2D(32,kernel_size=3,padding='same')(x)
+    x = Conv2D(convlayernums[0],kernel_size=3,padding='same')(x)
     x = BatchNormalization()(x)
     x = ReLU()(x)
 
-    x = Conv2D(32,kernel_size=3,padding='same')(x)
+    x = Conv2D(convlayernums[0],kernel_size=3,padding='same')(x)
     x = BatchNormalization()(x)
     x = ReLU()(x)
 
@@ -88,24 +91,24 @@ def build_model(convlayernums=[32,32,32,32],metadatashape=None):
     x = BatchNormalization()(x)
     x = ReLU()(x)
 
-
+    #Ascending branch of the unet
     for i in range(updownlayers):
         x = upblock(x,convlayernums[updownlayers-i-1])
         x = Concatenate()((x,skipconns[updownlayers-i-1]))
 
-    x = Conv2D(32,kernel_size=3,padding='same')(x)
+    x = Conv2D(convlayernums[0],kernel_size=3,padding='same')(x)
     x = BatchNormalization()(x)
     x = ReLU()(x)
 
-    x = Conv2D(32,kernel_size=3,padding='same')(x)
+    x = Conv2D(convlayernums[0],kernel_size=3,padding='same')(x)
     x = BatchNormalization()(x)
     x = ReLU()(x)
 
-    x = Conv2D(32,kernel_size=3,padding='same')(x)
+    x = Conv2D(convlayernums[0],kernel_size=3,padding='same')(x)
     x = BatchNormalization()(x)
     x = ReLU()(x)
 
-    x = Conv2D(16,kernel_size=3,padding='same')(x)
+    x = Conv2D(convlayernums[0]//2,kernel_size=3,padding='same')(x)
     x = BatchNormalization()(x)
     x = ReLU()(x)
 
@@ -218,6 +221,13 @@ class Recall(tfm.Recall):
 
 
 def do_PeakCNN(model,img,metadata=None,threshold=0.5):
+    """
+    Applies a trained PeakCNN model to an image and returns peak positions and the amount found.
+    If the model expects metadata input this needs to be supplied as well.
+    The threshold argument can be set between 0 and 1 allows to select the agressiveness of detection.
+    Only particles where the classifier outputs a higher probability than the threshold value are considered peaks.
+    The default value of 0.5 should be a reasonable balance for most cases but this can be adjusted to target the desired precision/recall tradeoff
+    """
 
     data=np.reshape(img,(1,*img.shape,1))
     imagesize = data.shape[1:3]
@@ -289,24 +299,21 @@ def do_PeakCNN(model,img,metadata=None,threshold=0.5):
 
 
 
-def obtain_internal_representation(trueuv,imgsize):
+def obtain_internal_representation(trueuv, imgsize):
     """Convert list of peak positions into network internal representation"""
     
-    w,h = imgsize
-    trueuvpx=np.round(trueuv).astype("int")
-
-    maskout=np.zeros((w,h),"float32")
-    for el in trueuvpx:
-        if el[1]<w and el[0]<h:
-            maskout[el[1],el[0]]=1
-
-    suboff=np.zeros((w,h,2),"float32")
-    for (el,elsub) in zip(trueuvpx,trueuv):
-        if el[1]<w and el[0]<h:
-            suboff[el[1],el[0],:] = elsub-el
-
-    labelout=np.dstack([maskout,suboff])
-
+    w, h = imgsize
+    trueuvpx = np.round(trueuv).astype("int")
+    valid = (trueuvpx[:, 0] < h) & (trueuvpx[:, 1] < w)
+    
+    maskout = np.zeros((w, h), dtype="float32")
+    maskout[trueuvpx[valid, 1], trueuvpx[valid, 0]] = 1
+    
+    suboff = np.zeros((w, h, 2), dtype="float32")
+    suboff[trueuvpx[valid, 1], trueuvpx[valid, 0]] = (trueuv[valid] - trueuvpx[valid])
+    
+    labelout = np.dstack([maskout, suboff])
+    
     return labelout
 
 
