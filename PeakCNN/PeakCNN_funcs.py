@@ -275,7 +275,7 @@ def do_PeakCNN(model,img,metadata=None,threshold=0.5):
             w=mout.shape[1]
 
             xoff=(256-4)*xx +2 -padoffx #model gives pos relative to tile so for global pos we need an tile pos offset
-            yoff=(256-4)*yy +2 -padoffx
+            yoff=(256-4)*yy +2 -padoffy
 
             a,b=np.nonzero(labelout.numpy()) # find all pixels containing peaks
 

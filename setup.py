@@ -13,7 +13,7 @@ with open("README.md", 'r') as readme:
 
 setuptools.setup(
     name="PeakCNN",
-    version="0.1.1",
+    version="0.1.2",
     author="Philipp Godbersen",
     author_email="philipp.godbersen@dlr.de",
     description="Peak detection on measurement images via CNNs",
